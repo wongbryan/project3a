@@ -1,7 +1,7 @@
 /*
-NAME: Steven La, Bryan Wong
-EMAIL: stevenla@g.ucla.edu, bryanw0ng@g.ucla.edu
-ID: 004781046, 504744476
+NAME: Steven La,Bryan Wong
+EMAIL: stevenla@g.ucla.edu,bryanw0ng@g.ucla.edu
+ID: 004781046,504744476
 */
 
 #include <stdlib.h>
@@ -15,7 +15,7 @@ ID: 004781046, 504744476
 #include "ext2_fs.h"
 
 struct ext2_super_block superblock;
-struct ext2_group_desc groups_data;
+struct ext2_group_desc* groups_data;
 
 void scan_superblock(int fd){
 	int bytes_read = pread(fd, &superblock, sizeof(struct ext2_super_block), 1024);
@@ -44,8 +44,12 @@ void scan_superblock(int fd){
 
 void scan_groups(int fd){
 	int num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
-	struct ext2_group_desc group_descripts[num_groups*sizeof(struct ext2_group_desc)];
-	int bytes_read = pread(fd, group_descripts, num_groups*sizeof(struct ext2_group_desc), 1024+sizeof(struct ext2_super_block));
+	groups_data = malloc(num_groups*sizeof(struct ext2_group_desc));
+	if (groups_data == NULL) {
+		fprintf(stderr, "Error in allocating dynamic memory: %s\n", strerror(errno));
+		exit(2);
+	}
+	int bytes_read = pread(fd, groups_data, num_groups*sizeof(struct ext2_group_desc), 1024+sizeof(struct ext2_super_block));
 	if(bytes_read < 0){
 		fprintf(stderr, "Error reading groups: %s\n", strerror(errno));
 		exit(2);
@@ -64,15 +68,41 @@ void scan_groups(int fd){
 			i,
 			o_blockgroup,
 			o_inodegroup,
-			group_descripts[i].bg_free_blocks_count,
-			group_descripts[i].bg_free_inodes_count,
-			group_descripts[i].bg_block_bitmap,
-			group_descripts[i].bg_inode_bitmap,
-			group_descripts[i].bg_inode_table
+			groups_data[i].bg_free_blocks_count,
+			groups_data[i].bg_free_inodes_count,
+			groups_data[i].bg_block_bitmap,
+			groups_data[i].bg_inode_bitmap,
+			groups_data[i].bg_inode_table
 			);
 		o_inodecount -= superblock.s_inodes_per_group;
 		o_blockcount -= superblock.s_blocks_per_group;
 		i++;
+	}
+}
+
+void free_blocks(int fd) {
+	int num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
+	int block_size = 1024 << superblock.s_log_block_size;
+	unsigned long i = 0;
+	unsigned long j = 0;
+	unsigned long k = 0;
+	for (i = 0; i < num_groups; i++) {
+		for (j = 0; j < block_size; j++) {
+			uint8_t byte;
+			int pos_bitmask = 1;
+			int r = pread(fd, &byte, 1, (block_size*groups_data[i].bg_block_bitmap)+j);
+			if (r < 0) {
+				fprintf(stderr, "Error reading byte from block's bitmap: %s\n", strerror(errno));
+				exit(2);
+			}
+			for (k = 0; k < 8; k++) {
+				int c = byte&pos_bitmask;
+				if (c == 0) {
+					fprintf(stdout, "BFREE,%lu\n", i * superblock.s_blocks_per_group + j * 8 + k + 1);
+				}
+				pos_bitmask <<= 1;
+			}
+		}
 	}
 }
 
@@ -90,6 +120,8 @@ int main(int argc, char** argv){
 	// produce CSV summaries
 	scan_superblock(fd);
 	scan_groups(fd);
+	free_blocks(fd);
 
+	free(groups_data);
 	exit(0);
 }
