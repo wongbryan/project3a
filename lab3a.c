@@ -151,6 +151,39 @@ void format_time(char* buf, uint32_t timestamp, int size) {
 	strftime(buf, size, "%m/%d/%y %H:%M:%S", &gm_time);
 }
 
+void scan_directory(int fd, struct ext2_inode* inode, int parent_inode_num){
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
+	unsigned char block[block_size];
+	int b;
+	for(b=0; b<12; b++){ //scan direct blocks
+		int block_num = inode->i_block[b];
+		if (pread(fd, block, block_size, 1024 + (block_num-1)*block_size) < 0) {
+			fprintf(stderr, "Error reading blocks for directory: %s\n", strerror(errno));
+		}
+		struct ext2_dir_entry* dir_entry = (struct ext2_dir_entry*) block;
+		unsigned int offset = 0;
+		while((offset < inode->i_size) && dir_entry->file_type){
+			if(dir_entry->name_len > 0 && dir_entry->inode > 0){
+				int inode_num = dir_entry->inode;
+				int entry_length = dir_entry->rec_len;
+				int name_length = dir_entry->name_len;
+				char* name = dir_entry->name;
+
+				fprintf(stdout, "DIRENT,%d,%d,%d,%d,%d,%s\n",
+					parent_inode_num,
+					offset,
+					inode_num,
+					entry_length,
+					name_length,
+					name
+				);
+			}
+			offset = offset + dir_entry->rec_len;
+      		dir_entry = (void*)dir_entry + dir_entry->rec_len;
+		}
+	}
+}
+
 void scan_inodes(int fd){
 	int i=0;
 	int intermediate = superblock.s_blocks_count-1;
@@ -198,10 +231,6 @@ void scan_inodes(int fd){
 			int file_size = inode.i_size;
 			int num_blocks = inode.i_blocks;
 
-			if(inode_num == 15){
-				fprintf(stderr, "file type: %c\n", file_type);
-			}
-
 			fprintf(stdout, "INODE,%d,%c,%o,%d,%d,%d,%s,%s,%s,%d,%d,",
 				inode_num,
 				file_type,
@@ -232,7 +261,10 @@ void scan_inodes(int fd){
 					fprintf(stdout, format_str, inode.i_block[b]);
 				}
 			}
-			
+
+			if(file_type == 'd'){
+				scan_directory(fd, &inode, inode_num);
+			}
 		}
 		++i;
 	}
