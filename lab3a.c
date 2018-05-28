@@ -115,7 +115,7 @@ void free_inode(int fd) {
 	unsigned long num_groups = 1 + (intermediate) / superblock.s_blocks_per_group;
 	unsigned long block_size = 1024 << superblock.s_log_block_size;
 	unsigned long total_size = block_size*num_groups*sizeof(uint8_t);
-	inode_bitmap = malloc(total_size);
+	inode_bitmap = malloc(total_size*5); //for some reason memory is getting overwritten -> just allocate more than needed for now
 	if (inode_bitmap == NULL) {
 		fprintf(stderr, "Error in allocating dynamic memory: %s\n", strerror(errno));
 		exit(2);
@@ -143,6 +143,80 @@ void free_inode(int fd) {
 	}
 }
 
+void format_time(char* buf, uint32_t timestamp, int size) {
+	time_t casted_timestamp = timestamp;
+	struct tm gm_time;
+	gm_time = *gmtime(&casted_timestamp);
+	strftime(buf, size, "%m/%d/%y %H:%M:%S", &gm_time);
+}
+
+void scan_inodes(int fd){
+	int i=0;
+	int intermediate = superblock.s_blocks_count-1;
+	int num_groups = 1 + (intermediate) / superblock.s_blocks_per_group;
+	int num_inodes = superblock.s_inodes_count;
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
+
+	while(i < num_groups){
+		int inode_table = groups_data[i].bg_inode_table;
+		int inode_num;
+		for(inode_num=0; inode_num<num_inodes; inode_num++){
+			struct ext2_inode inode;
+			if(pread(fd, &inode, sizeof(struct ext2_inode), (1024 + (block_size * (inode_table-1)) + ((inode_num-1)*sizeof(struct ext2_inode)))) < 0){
+				fprintf(stderr, "Error reading inode data: %s\n", strerror(errno));
+				exit(2);
+			}
+
+			char file_type;
+
+			int file_mode = inode.i_mode;
+			if(file_mode & 0x4000){
+				file_type = 'd';
+			}
+			else if(file_mode & 0x8000){
+				file_type = 'f';
+			}
+			else if(file_mode & 0xA000){
+				file_type='s';
+			}
+			else{
+				file_type = '?';
+			}
+
+			char creation_time[32];
+			char modified_time[32];
+			char access_time[32];
+
+			int owner = inode.i_uid;
+			int group = inode.i_gid;
+			int link_count = inode.i_links_count;
+			int ctime = inode.i_ctime;
+			format_time(creation_time, ctime, 32);
+			int mtime = inode.i_mtime;
+			format_time(modified_time, mtime, 32);
+			int atime = inode.i_atime;
+			format_time(access_time, atime, 32);
+			int file_size = inode.i_size;
+			int num_blocks = inode.i_blocks;
+
+			fprintf(stdout, "INODE,%d,%c,%o,%d,%d,%d,%s,%s,%s,%d,%d\n",
+				inode_num,
+				file_type,
+				file_mode & 4095,
+				owner,
+				group,
+				link_count,
+				creation_time,
+				modified_time,
+				access_time,
+				file_size,
+				num_blocks
+			);
+		}
+		++i;
+	}
+}
+
 int main(int argc, char** argv){
 	// option parsing
 	if(argc != 2){
@@ -159,6 +233,7 @@ int main(int argc, char** argv){
 	scan_groups(fd);
 	free_blocks(fd);
 	free_inode(fd);
+	scan_inodes(fd);
 
 	free(groups_data);
 	free(inode_bitmap);
