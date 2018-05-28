@@ -12,6 +12,7 @@ ID: 004781046,504744476
 #include <errno.h>
 #include <time.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "ext2_fs.h"
 
 struct ext2_super_block superblock;
@@ -170,14 +171,12 @@ void scan_inodes(int fd){
 			char file_type;
 
 			int file_mode = inode.i_mode;
-			if(file_mode & 0x4000){
+			if(S_ISDIR(file_mode)) {
 				file_type = 'd';
-			}
-			else if(file_mode & 0x8000){
+			} else if (S_ISREG(file_mode)) {
 				file_type = 'f';
-			}
-			else if(file_mode & 0xA000){
-				file_type='s';
+			} else if (S_ISLNK(file_mode)) {
+				file_type = 's';
 			}
 			else{
 				file_type = '?';
@@ -199,7 +198,11 @@ void scan_inodes(int fd){
 			int file_size = inode.i_size;
 			int num_blocks = inode.i_blocks;
 
-			fprintf(stdout, "INODE,%d,%c,%o,%d,%d,%d,%s,%s,%s,%d,%d\n",
+			if(inode_num == 15){
+				fprintf(stderr, "file type: %c\n", file_type);
+			}
+
+			fprintf(stdout, "INODE,%d,%c,%o,%d,%d,%d,%s,%s,%s,%d,%d,",
 				inode_num,
 				file_type,
 				file_mode & 4095,
@@ -212,6 +215,24 @@ void scan_inodes(int fd){
 				file_size,
 				num_blocks
 			);
+
+			if(file_type == 's' && num_blocks == 0){ //if short sym link, there are no blocks allocated -> do not print all 15 blocks
+				fprintf(stdout, "%d\n", inode.i_block[0]);
+			}
+			else{
+				int b;
+				for(b=0; b<15; b++){
+					char *format_str;
+					if(b == 14){
+						format_str = "%d\n";
+					}
+					else{
+						format_str = "%d,";
+					}
+					fprintf(stdout, format_str, inode.i_block[b]);
+				}
+			}
+			
 		}
 		++i;
 	}
