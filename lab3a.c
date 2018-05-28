@@ -15,7 +15,9 @@ ID: 004781046,504744476
 #include "ext2_fs.h"
 
 struct ext2_super_block superblock;
-struct ext2_group_desc* groups_data;
+struct ext2_group_desc *groups_data;
+
+int *inode_bitmap;
 
 void scan_superblock(int fd){
 	int bytes_read = pread(fd, &superblock, sizeof(struct ext2_super_block), 1024);
@@ -106,6 +108,37 @@ void free_blocks(int fd) {
 	}
 }
 
+void free_inode(int fd) {
+	int num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
+	int block_size = 1024 << superblock.s_log_block_size;
+	inode_bitmap = malloc(block_size*num_groups*sizeof(uint8_t));
+	if (inode_bitmap == NULL) {
+		fprintf(stderr, "Error in allocating dynamic memory: %s\n", strerror(errno));
+		exit(2);
+	}
+	unsigned long i = 0;
+	unsigned long j = 0;
+	unsigned long k = 0;
+	for (i = 0; i < num_groups; i++) {
+		for (j = 0; j < block_size; j++) {
+			uint8_t byte;
+			int pos_bitmask = 1;
+			int r = pread(fd, &byte, 1, (block_size*groups_data[i].bg_inode_bitmap)+j);
+			if (r < 0) {
+				fprintf(stderr, "Error reading byte from inode's bitmap: %s\n", strerror(errno));
+				exit(2);
+			}
+			inode_bitmap[j+i] = byte;
+			for (k = 0; k < 8; k++) {
+				int c = byte&pos_bitmask;
+				if (c == 0)
+					fprintf(stdout, "IFREE,%lu\n", i * superblock.s_inodes_per_group + j * 8 + k + 1);
+				pos_bitmask <<= 1;
+			}
+		}
+	}
+}
+
 int main(int argc, char** argv){
 	// option parsing
 	if(argc != 2){
@@ -121,7 +154,9 @@ int main(int argc, char** argv){
 	scan_superblock(fd);
 	scan_groups(fd);
 	free_blocks(fd);
+	free_inode(fd);
 
 	free(groups_data);
+	free(inode_bitmap);
 	exit(0);
 }
