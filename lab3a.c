@@ -57,10 +57,10 @@ void scan_groups(int fd){
 		exit(2);
 	}
 	int i = 0;
-	int o_inodecount = superblock.s_inodes_count;
-	int o_inodegroup = superblock.s_inodes_per_group;
-	int o_blockcount = superblock.s_blocks_count;
-	int o_blockgroup = superblock.s_blocks_per_group;
+	unsigned int o_inodecount = superblock.s_inodes_count;
+	unsigned int o_inodegroup = superblock.s_inodes_per_group;
+	unsigned int o_blockcount = superblock.s_blocks_count;
+	unsigned int o_blockgroup = superblock.s_blocks_per_group;
 	while(i < num_groups){
 		if (o_blockcount < superblock.s_blocks_per_group)
 			o_blockgroup = o_blockcount;
@@ -83,8 +83,8 @@ void scan_groups(int fd){
 }
 
 void free_blocks(int fd) {
-	int num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
-	int block_size = 1024 << superblock.s_log_block_size;
+	unsigned long num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
 	unsigned long i = 0;
 	unsigned long j = 0;
 	unsigned long k = 0;
@@ -109,8 +109,8 @@ void free_blocks(int fd) {
 }
 
 void free_inode(int fd) {
-	int num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
-	int block_size = 1024 << superblock.s_log_block_size;
+	unsigned long num_groups = 1 + (superblock.s_blocks_count-1) / superblock.s_blocks_per_group;
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
 	inode_bitmap = malloc(block_size*num_groups*sizeof(uint8_t));
 	if (inode_bitmap == NULL) {
 		fprintf(stderr, "Error in allocating dynamic memory: %s\n", strerror(errno));
