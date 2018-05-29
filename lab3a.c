@@ -151,28 +151,6 @@ void format_time(char* buf, uint32_t timestamp, int size) {
 	strftime(buf, size, "%m/%d/%y %H:%M:%S", &gm_time);
 }
 
-void scan_indirect_block(int fd, struct ext2_inode* inode, int parent_inode_num, int block_num, int base_offset){
-	unsigned long block_size = 1024 << superblock.s_log_block_size;
-	int indirect_block[block_size];
-
-	if(pread(fd, indirect_block, block_size, 1024 + (block_num-1)*block_size) < 0) {
-		fprintf(stderr, "Error reading blocks for directory: %s\n", strerror(errno));
-	}
-
-	fprintf(stderr, "INDIRECT BLOCK\n");
-
-	unsigned int i=0;
-	while(i < block_size/4){
-		fprintf(stdout, "INDIRECT,%d,1,%d,%d,%d\n",
-			parent_inode_num,
-			base_offset + i,
-			block_num,
-			indirect_block[i] 
-		);
-		i++;
-	}
-}
-
 void scan_direct_block(int fd, struct ext2_inode* inode, int parent_inode_num, int block_num){
 	unsigned long block_size = 1024 << superblock.s_log_block_size;
 	unsigned char block[block_size];
@@ -202,16 +180,95 @@ void scan_direct_block(int fd, struct ext2_inode* inode, int parent_inode_num, i
 	}
 }
 
-void scan_directory(int fd, struct ext2_inode* inode, int parent_inode_num){
+void scan_indirect_block(int fd, struct ext2_inode* inode, int parent_inode_num, int block_num, int base_offset, char file_type){
 	unsigned long block_size = 1024 << superblock.s_log_block_size;
-	unsigned char block[block_size];
-	int b;
-	for(b=0; b<12; b++){ //scan direct blocks
-		int block_num = inode->i_block[b];
-		scan_direct_block(fd, inode, parent_inode_num, block_num);
+	int indirect_block[block_size];
+
+	if(pread(fd, indirect_block, block_size, 1024 + (block_num-1)*block_size) < 0) {
+		fprintf(stderr, "Error reading blocks for directory: %s\n", strerror(errno));
+	}
+
+	unsigned int i=0;
+	while(i < block_size/4){
+		if(!(indirect_block[i] == 0)){
+			if (file_type == 'd'){
+				scan_direct_block(fd, inode, parent_inode_num, indirect_block[i]);
+			}	
+			fprintf(stdout, "INDIRECT,%d,1,%d,%d,%d\n",
+				parent_inode_num,
+				base_offset + i,
+				block_num,
+				indirect_block[i] 
+			);
+		}
+		i++;
+	}
+}
+
+void scan_double_indirect_block(int fd, struct ext2_inode* inode, int parent_inode_num, int block_num, int base_offset, char file_type){
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
+	int double_indirect_block[block_size];
+
+	if(pread(fd, double_indirect_block, block_size, 1024 + (block_num-1)*block_size) < 0) {
+		fprintf(stderr, "Error reading blocks for directory: %s\n", strerror(errno));
+	}
+
+	unsigned int i=0;
+	while(i < block_size/4){
+		if(!(double_indirect_block[i] == 0)){
+			scan_indirect_block(fd, inode, parent_inode_num, double_indirect_block[i], base_offset + i, file_type);
+			fprintf(stdout, "INDIRECT,%d,2,%d,%d,%d\n",
+				parent_inode_num,
+				base_offset + i,
+				block_num,
+				double_indirect_block[i] 
+			);
+		}
+		i++;
+	}
+}
+
+void scan_triple_indirect_block(int fd, struct ext2_inode* inode, int parent_inode_num, int block_num, int base_offset, char file_type){
+	unsigned long block_size = 1024 << superblock.s_log_block_size;
+	int triple_indirect_block[block_size];
+
+	if(pread(fd, triple_indirect_block, block_size, 1024 + (block_num-1)*block_size) < 0) {
+		fprintf(stderr, "Error reading blocks for directory: %s\n", strerror(errno));
+	}
+
+	unsigned int i=0;
+	while(i < block_size/4){
+		if(!(triple_indirect_block[i] == 0)){
+			scan_double_indirect_block(fd, inode, parent_inode_num, triple_indirect_block[i], base_offset + i, file_type);
+			fprintf(stdout, "INDIRECT,%d,3,%d,%d,%d\n",
+				parent_inode_num,
+				base_offset + i,
+				block_num,
+				triple_indirect_block[i] 
+			);
+		}
+		i++;
+	}
+}
+
+void scan_directory(int fd, struct ext2_inode* inode, int parent_inode_num, char file_type){
+	// unsigned long block_size = 1024 << superblock.s_log_block_size;
+	// unsigned char block[block_size];
+	if(file_type == 'd'){
+		int b;
+		for(b=0; b<12; b++){ //scan direct blocks
+			int block_num = inode->i_block[b];
+			scan_direct_block(fd, inode, parent_inode_num, block_num);
+		}
 	}
 	if(inode->i_block[12] != 0){
-		scan_indirect_block(fd, inode, parent_inode_num, inode->i_block[12], 12);
+		scan_indirect_block(fd, inode, parent_inode_num, inode->i_block[12], 12, file_type);
+	}
+	if(inode->i_block[13] != 0){
+		scan_double_indirect_block(fd, inode, parent_inode_num, inode->i_block[13], 12+256, file_type);
+	}
+	if(inode->i_block[14] != 0){
+		scan_triple_indirect_block(fd, inode, parent_inode_num, inode->i_block[14], 12+(256*256)+256, file_type);
 	}
 }
 
@@ -293,8 +350,8 @@ void scan_inodes(int fd){
 				}
 			}
 
-			if(file_type == 'd'){
-				scan_directory(fd, &inode, inode_num);
+			if(file_type == 'f' || file_type == 'd'){
+				scan_directory(fd, &inode, inode_num, file_type);
 			}
 		}
 		++i;
