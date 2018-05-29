@@ -9,7 +9,7 @@ default: fs
 fs: 
 	gcc -Wall -Wextra -o lab3a lab3a.c
 
-dist: fs
+dist: clean fs
 	tar -czf lab3a-504744476.tar.gz lab3a.c ext2_fs.h Makefile README
 
 clean: 

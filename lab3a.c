@@ -252,8 +252,6 @@ void scan_triple_indirect_block(int fd, struct ext2_inode* inode, int parent_ino
 }
 
 void scan_directory(int fd, struct ext2_inode* inode, int parent_inode_num, char file_type){
-	// unsigned long block_size = 1024 << superblock.s_log_block_size;
-	// unsigned char block[block_size];
 	if(file_type == 'd'){
 		int b;
 		for(b=0; b<12; b++){ //scan direct blocks
@@ -282,11 +280,15 @@ void scan_inodes(int fd){
 	while(i < num_groups){
 		int inode_table = groups_data[i].bg_inode_table;
 		int inode_num;
-		for(inode_num=0; inode_num<num_inodes; inode_num++){
+		for(inode_num=2; inode_num<num_inodes; inode_num++){
 			struct ext2_inode inode;
 			if(pread(fd, &inode, sizeof(struct ext2_inode), (1024 + (block_size * (inode_table-1)) + ((inode_num-1)*sizeof(struct ext2_inode)))) < 0){
 				fprintf(stderr, "Error reading inode data: %s\n", strerror(errno));
 				exit(2);
+			}
+
+			if (inode.i_mode == 0 || inode.i_links_count == 0){
+				continue;
 			}
 
 			char file_type;
